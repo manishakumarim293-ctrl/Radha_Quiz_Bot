@@ -461,12 +461,12 @@ async def track_poll_answers(update: Update, context: ContextTypes.DEFAULT_TYPE)
             
             # Store the user's answer for this question
             game["user_answers"][uid][question_idx] = {
-                "selected": ans.option_ids,
+                "selected": ans.option_ids[0] if ans.option_ids else -1,  # Store first selected option
                 "correct_idx": correct_idx,
                 "timestamp": datetime.now()
             }
             
-            logging.info(f"✅ Stored answer for user {uid}: {ans.option_ids} (correct: {correct_idx})")
+            logging.info(f"✅ Stored answer for user {uid}: selected={ans.option_ids[0] if ans.option_ids else -1}, correct={correct_idx}")
     
     if not found:
         logging.warning(f"Poll {pid} not found in any active game")
@@ -492,6 +492,7 @@ async def compile_group_leaderboard(chat_id, context):
         correct_answers[idx] = correct_idx
     
     logging.info(f"Total questions: {len(questions)}, Correct answers: {correct_answers}")
+    logging.info(f"User answers data: {game['user_answers']}")
     
     # Calculate scores based on tracked answers
     final_scores = {}
@@ -507,19 +508,22 @@ async def compile_group_leaderboard(chat_id, context):
             continue
             
         for question_idx, answer_data in user_answers.items():
-            # Fix: Extract the selected index properly
-            selected_idx = answer_data["selected"][0] if answer_data["selected"] else -1
+            # FIX: Extract the selected index and compare directly
+            selected_idx = answer_data["selected"]  # Now it's already an int, not a list
             correct_idx = correct_answers.get(question_idx, -1)
             
-            logging.info(f"User {uid}: Q{question_idx} - Selected {selected_idx}, Correct {correct_idx}")
+            logging.info(f"User {uid}: Q{question_idx} - Selected {selected_idx}, Correct {correct_idx} (Match: {selected_idx == correct_idx})")
             
             if selected_idx == correct_idx:
                 score += 1
+                logging.info(f"✅ User {uid} got Q{question_idx} correct!")
                 # Calculate time taken for this question
                 start_time = game["question_start_times"].get(question_idx, answer_data["timestamp"])
                 if isinstance(start_time, datetime):
                     elapsed = (answer_data["timestamp"] - start_time).total_seconds()
                     total_time += elapsed
+            else:
+                logging.info(f"❌ User {uid} got Q{question_idx} wrong (selected {selected_idx} but correct was {correct_idx})")
         
         final_scores[uid] = {"score": score, "total_time": total_time}
         logging.info(f"User {uid} final: {score} correct, {total_time} sec total")
@@ -533,7 +537,8 @@ async def compile_group_leaderboard(chat_id, context):
     if not sorted_scores:
         board += "❌ कोई भी user successfully participate नहीं कर सका। 🤷‍♂️\n"
         board += f"Total users joined: {len(game['joined_users'])}\n"
-        board += f"Users with answers: {len(game['user_answers'])}"
+        board += f"Users with answers: {len(game['user_answers'])}\n"
+        board += f"Users with valid scores: {len(final_scores)}"
         kb = []
     else:
         total_q = len(questions)
