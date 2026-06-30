@@ -29,6 +29,14 @@ def escape_markdown(text):
         text = text.replace(char, f'\\{char}')
     return text
 
+def format_time(seconds):
+    """Convert seconds to min:sec format (e.g., 1m 45s)"""
+    if seconds < 60:
+        return f"{int(seconds)}s"
+    minutes = int(seconds) // 60
+    secs = int(seconds) % 60
+    return f"{minutes}m {secs}s"
+
 def init_db():
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -498,6 +506,7 @@ async def compile_group_leaderboard(chat_id, context):
     final_scores = {}
     for uid, user_answers in game["user_answers"].items():
         score = 0
+        wrong = 0
         total_time = 0.0
         
         logging.info(f"User {uid}: {len(user_answers)} answers recorded")
@@ -523,10 +532,11 @@ async def compile_group_leaderboard(chat_id, context):
                     elapsed = (answer_data["timestamp"] - start_time).total_seconds()
                     total_time += elapsed
             else:
+                wrong += 1
                 logging.info(f"❌ User {uid} got Q{question_idx} wrong (selected {selected_idx} but correct was {correct_idx})")
         
-        final_scores[uid] = {"score": score, "total_time": total_time}
-        logging.info(f"User {uid} final: {score} correct, {total_time} sec total")
+        final_scores[uid] = {"score": score, "wrong": wrong, "total_time": total_time}
+        logging.info(f"User {uid} final: {score} correct, {wrong} wrong, {total_time} sec total")
     
     logging.info(f"Final scores for chat {chat_id}: {final_scores}")
     
@@ -541,21 +551,21 @@ async def compile_group_leaderboard(chat_id, context):
         board += f"Users with valid scores: {len(final_scores)}"
         kb = []
     else:
-        total_q = len(questions)
         for idx, (uid, meta) in enumerate(sorted_scores, 1):
             user_obj = game["joined_users"].get(uid, "User")
-            score = meta["score"]
-            total_time = round(meta["total_time"], 2)
+            correct = meta["score"]
+            wrong = meta["wrong"]
+            total_time = format_time(meta["total_time"])  # Use format_time function
             
             if idx == 1: medal = "🥇"
             elif idx == 2: medal = "🥈"
             elif idx == 3: medal = "🥉"
             else: medal = f"{idx}."
                 
-            board += f"{medal} {user_obj} — ⭐ {score}/{total_q} Sahi (⏱ {total_time} sec)\n"
+            board += f"{medal} {user_obj}\n   ✅ {correct} Sahi | ❌ {wrong} Ghalat | ⏱ {total_time}\n\n"
             
-        share_text = f"Maine Laado Quiz Bot me participate kiya aur top players me rank banayi! 🔥"
-        kb = [[InlineKeyboardButton("📢 Share Score / Results", url=f"https://t.me/share/url?url={share_text}")]]
+        share_text = f"Maine Laado Quiz Bot me participate kiya! 🔥"
+        kb = [[InlineKeyboardButton("📢 Share Score", url=f"https://t.me/share/url?url={share_text}")]]
         
     await context.bot.send_message(chat_id=chat_id, text=board, reply_markup=InlineKeyboardMarkup(kb) if kb else None)
     GROUP_GAMES.pop(chat_id, None)
