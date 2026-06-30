@@ -384,8 +384,22 @@ async def launch_group_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
         
     await query.answer()
-    await query.message.reply_text("🔥 Get ready! Quiz shuru ho rahi hai...")
-    await asyncio.sleep(2)
+    
+    # Send "I am ready!" message
+    await query.message.reply_text("🎯 I am ready!")
+    
+    # 3-second countdown
+    countdown_msg = await context.bot.send_message(chat_id=chat_id, text="3️⃣")
+    await asyncio.sleep(1)
+    
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=countdown_msg.message_id, text="2️⃣")
+    await asyncio.sleep(1)
+    
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=countdown_msg.message_id, text="1️⃣")
+    await asyncio.sleep(1)
+    
+    await context.bot.edit_message_text(chat_id=chat_id, message_id=countdown_msg.message_id, text="🚀 GO!")
+    await asyncio.sleep(1)
     
     game["current_q"] = 0
     await send_next_group_poll(chat_id, context)
