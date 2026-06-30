@@ -481,9 +481,19 @@ async def compile_group_leaderboard(chat_id, context):
         score = 0
         total_time = 0.0
         
+        # Only count users who actually answered questions
+        if not user_answers:
+            logging.info(f"User {uid} has no answers, skipping from leaderboard")
+            continue
+            
         for question_idx, answer_data in user_answers.items():
-            # Check if answer is correct
-            if answer_data["selected"] == [correct_answers.get(question_idx, -1)]:
+            # Fix: Extract the selected index properly
+            selected_idx = answer_data["selected"][0] if answer_data["selected"] else -1
+            correct_idx = correct_answers.get(question_idx, -1)
+            
+            logging.info(f"User {uid}: Selected {selected_idx}, Correct {correct_idx} for question {question_idx}")
+            
+            if selected_idx == correct_idx:
                 score += 1
                 # Calculate time taken for this question
                 start_time = game["question_start_times"].get(question_idx, answer_data["timestamp"])
@@ -495,16 +505,16 @@ async def compile_group_leaderboard(chat_id, context):
     
     logging.info(f"Final scores for chat {chat_id}: {final_scores}")
     
-    # Update game scores
+    # Update game scores with calculated scores
     for uid, score_data in final_scores.items():
         game["scores"][uid] = score_data
     
-    # Sort by score desc, then total_time asc
-    sorted_scores = sorted(game["scores"].items(), key=lambda item: (-item[1]["score"], item[1]["total_time"]))[:20]
+    # Sort by score desc, then total_time asc - ONLY INCLUDE USERS WITH SCORES
+    sorted_scores = sorted(final_scores.items(), key=lambda item: (-item[1]["score"], item[1]["total_time"]))[:20]
     board = "🏆 FINAL QUIZ LEADERBOARD (Top 20) 🏆\n\n"
     
-    if not sorted_scores or len(game["joined_users"]) == 0:
-        board += "Nobody answered or participated in this quiz. 🤷‍♂️"
+    if not sorted_scores:
+        board += "कोई भी user successfully participate नहीं कर सका। 🤷‍♂️"
         kb = []
     else:
         for idx, (uid, meta) in enumerate(sorted_scores, 1):
