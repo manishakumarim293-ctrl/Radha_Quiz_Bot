@@ -469,4 +469,94 @@ async def compile_group_leaderboard(chat_id, context):
     conn.close()
     
     # Build correct answers list
+    correct_answers = {}
+    for idx, (q_text, options_json, correct_ans) in enumerate(questions):
+        options = json.loads(options_json)
+        correct_idx = options.index(correct_ans)
+        correct_answers[idx] = correct_idx
     
+    # Calculate scores based on tracked answers
+    final_scores = {}
+    for uid, user_answers in game["user_answers"].items():
+        score = 0
+        total_time = 0.0
+        
+        for question_idx, answer_data in user_answers.items():
+            # Check if answer is correct
+            if answer_data["selected"] == [correct_answers.get(question_idx, -1)]:
+                score += 1
+                # Calculate time taken for this question
+                start_time = game["question_start_times"].get(question_idx, answer_data["timestamp"])
+                if isinstance(start_time, datetime):
+                    elapsed = (answer_data["timestamp"] - start_time).total_seconds()
+                    total_time += elapsed
+        
+        final_scores[uid] = {"score": score, "total_time": total_time}
+    
+    logging.info(f"Final scores for chat {chat_id}: {final_scores}")
+    
+    # Update game scores
+    for uid, score_data in final_scores.items():
+        game["scores"][uid] = score_data
+    
+    # Sort by score desc, then total_time asc
+    sorted_scores = sorted(game["scores"].items(), key=lambda item: (-item[1]["score"], item[1]["total_time"]))[:20]
+    board = "🏆 FINAL QUIZ LEADERBOARD (Top 20) 🏆\n\n"
+    
+    if not sorted_scores or len(game["joined_users"]) == 0:
+        board += "Nobody answered or participated in this quiz. 🤷‍♂️"
+        kb = []
+    else:
+        for idx, (uid, meta) in enumerate(sorted_scores, 1):
+            user_obj = game["joined_users"].get(uid, "User")
+            score = meta["score"]
+            total_time = round(meta["total_time"], 1)
+            
+            if idx == 1: medal = "🥇"
+            elif idx == 2: medal = "🥈"
+            elif idx == 3: medal = "🥉"
+            else: medal = f"{idx}."
+                
+            board += f"{medal} {user_obj} — ⭐ {score} Sahi (⏱ {total_time} sec)\n"
+            
+        share_text = f"Maine Laado Quiz Bot me participate kiya aur top players me rank banayi! 🔥"
+        kb = [[InlineKeyboardButton("📢 Share Score / Results", url=f"https://t.me/share/url?url={share_text}")]]
+        
+    await context.bot.send_message(chat_id=chat_id, text=board, reply_markup=InlineKeyboardMarkup(kb) if kb else None)
+    GROUP_GAMES.pop(chat_id, None)
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    await update.message.reply_text("❌ Setup cancelled.", reply_markup=ReplyKeyboardRemove())
+    return ConversationHandler.END
+
+def main():
+    if not BOT_TOKEN: return
+    app = Application.builder().token(BOT_TOKEN).build()
+    
+    new_quiz_handler = ConversationHandler(
+        entry_points=[CommandHandler("newquiz", new_quiz_start)],
+        states={
+            TITLE: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_title)],
+            DESCRIPTION: [MessageHandler(filters.TEXT & ~filters.COMMAND, receive_desc), CommandHandler("skip", receive_desc)],
+            QUESTIONS: [CommandHandler("undo", handle_undo), CommandHandler("done", finish_quiz_creation), MessageHandler(filters.POLL, receive_poll)],
+            TIMER: [
+                MessageHandler(filters.TEXT & ~filters.COMMAND, handle_timer_text)
+            ]
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(new_quiz_handler)
+
+    app.add_handler(CallbackQueryHandler(handle_group_join, pattern="^join_"))
+    app.add_handler(CallbackQueryHandler(launch_group_quiz, pattern="^run_"))
+    app.add_handler(CallbackQueryHandler(edit_quiz_menu, pattern="^edit_"))
+    app.add_handler(CallbackQueryHandler(back_to_summary, pattern="^backto_"))
+    app.add_handler(PollAnswerHandler(track_poll_answers))
+    
+    print("🚀 Advanced Telegram Quiz-Bot UI Active...")
+    app.run_polling()
+
+if __name__ == "__main__":
+    main()
